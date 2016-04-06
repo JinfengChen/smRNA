@@ -10,7 +10,7 @@ GetOptions (\%opt,"ref:s","repeat:s","rfam:s","mirbase:s","step:s","read:s","cpu
 
 my $help=<<USAGE;
 perl $0 --read ERRR000077.fastq.gz
-Trim quality and adaptor for smRNA reads (1), filter r/t/sn/snoRNA (2), filter miRNA (3) and map reads to genome (4) and non-redundency repeat (4).
+Prepare sequence (0) and trim quality and adaptor for smRNA reads (1), filter r/t/sn/snoRNA (2), filter miRNA (3) and map reads to genome (4) and non-redundency repeat (4).
 1.The resulting fastq should be siRNA in plant. We map this onto genome and TE to analyze siRNA and TE interaction.
 2.miRNA expression level can be estimate by other software, like miRNAexpress, miRNAkey or mirDeep2.
 3.novel miRNA can be predicted by mirDeep2.
@@ -34,7 +34,8 @@ if ($opt{help} or keys %opt < 1){
     exit();
 }
 
-$opt{ref}   ||="/rhome/cjinfeng/BigData/00.RD/seqlib/MSU_r7.fa";
+$opt{ref}   ||="/rhome/cjinfeng/BigData/03.SmallRNA/reference/MSU_r7.fa";
+$opt{repeat}||="/rhome/cjinfeng/BigData/03.SmallRNA/reference/RiceRM.final.fa";
 $opt{rfam}  ||="$Bin/database/Rfam/Rfam.fasta";
 $opt{mirbase} ||="$Bin/database/mirbase/hairpin_osa.fa";
 $opt{cpu}   ||=1;
@@ -43,13 +44,14 @@ $opt{step}  ||="0";
 yizhou 3' adaptor TGGAATTCTCGGGTGCCAAGGC
 Zimberman 3' adaptor CTGTAGGCACCATCAAT  5' adaptor ACACTCTTTCCCTACACGACGCTGTTCCATCT
 Illumina 3'(Illumina_Small_RNA_3p_Adapter_1) ATCTCGTATGCCGTCTTCTGCTTG 5' (Illumina_Small_RNA_Adapter_1) GTTCAGAGTTCTACAGTCCGACGATC
+YijunQi 3' adaptor CTGTAGGCACCATCAAT 5' adaptor GTTCAGAGTTCTACAGTCCGACGATC
 =cut
 $opt{linker3} ||="ATCTCGTATGCCGTCTTCTGCTTG"; ###Illumina_Small_RNA_3p_Adapter_1
 $opt{linker5} ||="GTTCAGAGTTCTACAGTCCGACGATC"; ###Illumina_Small_RNA_Adapter_1
-my $bwa="/opt/tyler/bin/bwa";
-my $SAMtool="/usr/local/bin/samtools";
-my $bam="/rhome/cjinfeng/software/tools/bamUtil_1.0.9/bin/bam";
-my $fastx_clipper="/usr/local/bin/fastx_clipper";
+my $bwa="/opt/bwa/0.6.2/bin/bwa";
+my $SAMtool="/opt/samtools-0.1.16/samtools";
+my $bam="/rhome/cjinfeng/BigData/software/bamUtil_1.0.9/bin/bam";
+my $fastx_clipper="/opt/linux/centos/7.x/x86_64/pkgs/fastx_toolkit/0.0.13/bin/fastx_clipper";
 my $prefix="";
 
 #######Step 0###############################################
@@ -85,10 +87,16 @@ if($opt{step}=~/0/){
 ############################################################
 if($opt{step}=~/1/ and !(-e "$prefix.trim3_5.fastq.gz")){
   print "Trim adaptor: $opt{read} ......\n";
-  $prefix=basename($opt{read},".fastq.gz");
-  `zcat $opt{read} | $fastx_clipper -a $opt{linker3} -l 12 -Q 33 -v -c -z -o $prefix.trim3.fastq.gz > $prefix.trim3.log 2> $prefix.trim3.log2` unless (-e "$prefix.trim3.fastq.gz");
-  `zcat $prefix.trim3.fastq.gz | $fastx_clipper -a $opt{linker5} -l 12 -Q 33 -v -z -o $prefix.trim3_5.fastq.gz > $prefix.trim3_5.log 2> $prefix.trim3_5.log2` unless (-e "$prefix.trim3_5.fastq.gz");
-  print "Done\n";
+  if ($opt{read}=~/gz$/){
+      $prefix=basename($opt{read},".fastq.gz");
+      `zcat $opt{read} | $fastx_clipper -a $opt{linker3} -l 16 -Q 33 -v -c -z -o $prefix.trim3.fastq.gz > $prefix.trim3.log 2> $prefix.trim3.log2` unless (-e "$prefix.trim3.fastq.gz");
+      `zcat $prefix.trim3.fastq.gz | $fastx_clipper -a $opt{linker5} -l 16 -Q 33 -v -z -o $prefix.trim3_5.fastq.gz > $prefix.trim3_5.log 2> $prefix.trim3_5.log2` unless (-e "$prefix.trim3_5.fastq.gz");
+      print "Done\n";
+  }else{
+      $prefix=basename($opt{read},".fastq");
+      `cat $opt{read} | $fastx_clipper -a $opt{linker3} -l 16 -Q 33 -v -c -z -o $prefix.trim3.fastq.gz > $prefix.trim3.log 2> $prefix.trim3.log2` unless (-e "$prefix.trim3.fastq.gz");
+      `zcat $prefix.trim3.fastq.gz | $fastx_clipper -a $opt{linker5} -l 16 -Q 33 -v -z -o $prefix.trim3_5.fastq.gz > $prefix.trim3_5.log 2> $prefix.trim3_5.log2` unless (-e "$prefix.trim3_5.fastq.gz");
+  }
 }
 
 #######Step 2##############################################
@@ -100,7 +108,7 @@ if($opt{step}=~/2/ and !(-e "$prefix.trim3_5.rfam.fastq.gz")){
   `$bwa samse $opt{rfam} $prefix.trim3_5.rfam.sai $prefix.trim3_5.fastq.gz > $prefix.trim3_5.rfam.sam` unless (-e "$prefix.trim3_5.rfam.sam");
   `awk '\$2==4' $prefix.trim3_5.rfam.sam | $bam bam2FastQ --in - --outBase $prefix.trim3_5.rfam --readname` unless (-e "$prefix.trim3_5.rfam.fastq.gz");
   `gzip $prefix.trim3_5.rfam.fastq` unless (-e "$prefix.trim3_5.rfam.fastq.gz");
-  `rm $prefix.trim3_5.rfam_1.fastq $prefix.trim3_5.rfam_2.fastq $prefix.trim3_5.rfam.sa*`;
+  #`rm $prefix.trim3_5.rfam_1.fastq $prefix.trim3_5.rfam_2.fastq $prefix.trim3_5.rfam.sa*`;
   print "Done\n";
 }
 
@@ -113,7 +121,7 @@ if($opt{step}=~/3/ and !(-e "$prefix.trim3_5.rfam.mirbase.fastq.gz")){
   `$bwa samse $opt{mirbase} $prefix.trim3_5.rfam.mirbase.sai $prefix.trim3_5.rfam.fastq.gz > $prefix.trim3_5.rfam.mirbase.sam` unless (-e "$prefix.trim3_5.rfam.mirbase.sam");
   `awk '\$2==4' $prefix.trim3_5.rfam.mirbase.sam | $bam bam2FastQ --in - --outBase $prefix.trim3_5.rfam.mirbase --readname` unless (-e "$prefix.trim3_5.rfam.mirbase.fastq.gz");
   `gzip $prefix.trim3_5.rfam.mirbase.fastq` unless (-e "$prefix.trim3_5.rfam.mirbase.fastq.gz");
-  `rm $prefix.trim3_5.rfam.mirbase_1.fastq $prefix.trim3_5.rfam.mirbase_2.fastq $prefix.trim3_5.rfam.mirbase.sa*`;
+  #`rm $prefix.trim3_5.rfam.mirbase_1.fastq $prefix.trim3_5.rfam.mirbase_2.fastq $prefix.trim3_5.rfam.mirbase.sa*`;
   print "Done\n";
 }
 
@@ -128,17 +136,17 @@ if ($opt{step}=~/4/){
     `$bwa samse $opt{ref} $prefix.trim3_5.rfam.mirbase.genome.sai $prefix.trim3_5.rfam.mirbase.fastq.gz > $prefix.trim3_5.rfam.mirbase.genome.sam` unless (-e "$prefix.trim3_5.rfam.mirbase.genome.sam");
     `$SAMtool view -bS -o $prefix.trim3_5.rfam.mirbase.genome.new.bam $prefix.trim3_5.rfam.mirbase.genome.sam` unless (-e "$prefix.trim3_5.rfam.mirbase.genome.new.bam");
     `$SAMtool sort $prefix.trim3_5.rfam.mirbase.genome.new.bam $prefix.trim3_5.rfam.mirbase.genome` unless (-e "$prefix.trim3_5.rfam.mirbase.genome.bam");
-    `rm $prefix.trim3_5.rfam.mirbase.genome.sa* $prefix.trim3_5.rfam.mirbase.genome.new.bam`;
+    #`rm $prefix.trim3_5.rfam.mirbase.genome.sa* $prefix.trim3_5.rfam.mirbase.genome.new.bam`;
     print "Done\n";
   }
   ###transposon mapping
   if (-e $opt{repeat} and !(-e "$prefix.trim3_5.rfam.mirbase.repeat.bam")){
     print "Mapping reads to repeat ......\n";
     `$bwa aln -t $opt{cpu} $opt{repeat} $prefix.trim3_5.rfam.mirbase.fastq.gz > $prefix.trim3_5.rfam.mirbase.repeat.sai` unless (-e "$prefix.trim3_5.rfam.mirbase.repeat.sai");
-    `$bwa samse $opt{ref} $prefix.trim3_5.rfam.mirbase.repeat.sai $prefix.trim3_5.rfam.mirbase.fastq.gz > $prefix.trim3_5.rfam.mirbase.repeat.sam` unless (-e "$prefix.trim3_5.rfam.mirbase.repeat.sam");
+    `$bwa samse $opt{repeat} $prefix.trim3_5.rfam.mirbase.repeat.sai $prefix.trim3_5.rfam.mirbase.fastq.gz > $prefix.trim3_5.rfam.mirbase.repeat.sam` unless (-e "$prefix.trim3_5.rfam.mirbase.repeat.sam");
     `$SAMtool view -bS -o $prefix.trim3_5.rfam.mirbase.repeat.new.bam $prefix.trim3_5.rfam.mirbase.repeat.sam` unless (-e "$prefix.trim3_5.rfam.mirbase.repeat.new.bam");
     `$SAMtool sort $prefix.trim3_5.rfam.mirbase.repeat.new.bam $prefix.trim3_5.rfam.mirbase.repeat` unless (-e "$prefix.trim3_5.rfam.mirbase.repeat.bam");
-    `rm $prefix.trim3_5.rfam.mirbase.repeat.sa* $prefix.trim3_5.rfam.mirbase.repeat.new.bam`;
+    #`rm $prefix.trim3_5.rfam.mirbase.repeat.sa* $prefix.trim3_5.rfam.mirbase.repeat.new.bam`;
     print "Done\n";
   }
 }
